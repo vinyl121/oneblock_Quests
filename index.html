@@ -123,15 +123,28 @@
     }
     #tooltip .tt-desc {
         color: #c9ccd4; white-space: pre-wrap; word-wrap: break-word;
-        max-height: 140px; overflow: hidden;
-        -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent);
-                mask-image: linear-gradient(180deg, #000 70%, transparent);
+        max-height: 320px; overflow-y: auto;
+        padding-right: 4px;
+        font-size: 12.5px; line-height: 1.55;
     }
+    #tooltip { max-width: 480px; }
+    #tooltip .tt-desc::-webkit-scrollbar { width: 6px; }
+    #tooltip .tt-desc::-webkit-scrollbar-thumb { background: #3a3f50; border-radius: 3px; }
     #tooltip ul { margin: 2px 0; padding-left: 18px; }
     #tooltip li { margin: 1px 0; }
     #tooltip .task { color: var(--green); }
     #tooltip .reward { color: var(--gold); }
     #tooltip .dep { color: #93c5fd; }
+    #tooltip .dep-line {
+        color: var(--muted); font-size: 11px; font-style: italic;
+    }
+    #tooltip .tt-line {
+        color: #fcd34d;
+        background: rgba(251, 191, 36, 0.08);
+        padding: 4px 8px;
+        border-radius: 4px;
+        display: inline-block;
+    }
     #tooltip .none { color: var(--muted); font-style: italic; }
 
     /* Scrollbar */
@@ -275,8 +288,9 @@ function describeReward(rew) {
 }
 
 // ---------- State ----------
-let quests = [];       // [{id, name, clean, desc, isMain, tasks[], rewards[], deps[]}]
+let quests = [];       // [{id, name, clean, desc, isMain, deps[], lines[]}]
 let questMap = {};     // id -> quest entry
+let questLineNames = {}; // questId -> [lineName, ...]
 
 async function load() {
     const stats = document.getElementById('stats');
@@ -289,6 +303,18 @@ async function load() {
         const db = data['questDatabase:9'];
         if (!db) throw new Error('Не найден questDatabase:9');
 
+        // Build questLines map: questId -> [lineName, ...]
+        const lines = data['questLines:9'] || {};
+        Object.values(lines).forEach(line => {
+            const lineName = stripColor(line['properties:10']?.['betterquesting:10']?.['name:8'] || 'Без названия');
+            iterBQ(line['quests:9'], entry => {
+                const qid = entry['id:3'];
+                if (qid == null) return;
+                if (!questLineNames[qid]) questLineNames[qid] = [];
+                if (!questLineNames[qid].includes(lineName)) questLineNames[qid].push(lineName);
+            });
+        });
+
         Object.values(db).forEach(q => {
             const id = q['questID:3'];
             const props = q['properties:10']?.['betterquesting:10'] || {};
@@ -297,24 +323,21 @@ async function load() {
             const desc = stripColor(props['desc:8'] || '');
             const isMain = !!props['isMain:1'];
 
-            const tasks = [];
-            iterBQ(q['tasks:9'], t => tasks.push(describeTask(t)));
-
-            const rewards = [];
-            iterBQ(q['rewards:9'], r => rewards.push(describeReward(r)));
-
             const deps = (q['preRequisites:11'] || []).slice();
+            const lineList = questLineNames[id] || [];
 
-            const entry = { id, name, clean, desc, isMain, tasks, rewards, deps };
+            const entry = { id, name, clean, desc, isMain, deps, lines: lineList };
             quests.push(entry);
             questMap[id] = entry;
         });
 
-        // Resolve dep names
+        // Resolve dep names with their lines
         quests.forEach(q => {
-            q.depNames = q.deps.map(id => {
+            q.depInfo = q.deps.map(id => {
                 const dq = questMap[id];
-                return dq ? dq.clean : `ID ${id}`;
+                const nm = dq ? dq.clean : `ID ${id}`;
+                const ln = (questLineNames[id] && questLineNames[id].length) ? questLineNames[id].join(', ') : null;
+                return { name: nm, line: ln };
             });
         });
 
@@ -368,16 +391,15 @@ search.addEventListener('input', () => {
 const tooltip = document.getElementById('tooltip');
 
 function buildTooltip(q) {
-    const taskHTML = q.tasks.length
-        ? `<ul>${q.tasks.map(t => `<li class="task">${escapeHtml(t)}</li>`).join('')}</ul>`
-        : `<div class="none">нет</div>`;
+    const lineHTML = q.lines.length
+        ? `<div class="tt-line">${q.lines.map(escapeHtml).join(' · ')}</div>`
+        : `<div class="none">—</div>`;
 
-    const rewardHTML = q.rewards.length
-        ? `<ul>${q.rewards.map(r => `<li class="reward">${escapeHtml(r)}</li>`).join('')}</ul>`
-        : `<div class="none">нет</div>`;
-
-    const depHTML = q.depNames.length
-        ? `<ul>${q.depNames.map(d => `<li class="dep">${escapeHtml(d)}</li>`).join('')}</ul>`
+    const depHTML = q.depInfo.length
+        ? `<ul>${q.depInfo.map(d => {
+            const lineLabel = d.line ? ` <span class="dep-line">[${escapeHtml(d.line)}]</span>` : '';
+            return `<li class="dep">${escapeHtml(d.name)}${lineLabel}</li>`;
+        }).join('')}</ul>`
         : `<div class="none">нет</div>`;
 
     const descHTML = q.desc
@@ -387,8 +409,7 @@ function buildTooltip(q) {
     return `
         <div class="tt-name">${escapeHtml(q.clean)}</div>
         <div class="tt-id">ID: ${q.id}${q.isMain ? ' · главный' : ''}</div>
-        <div class="tt-section"><div class="tt-label">Задача</div>${taskHTML}</div>
-        <div class="tt-section"><div class="tt-label">Награда</div>${rewardHTML}</div>
+        <div class="tt-section"><div class="tt-label">Ветка</div>${lineHTML}</div>
         <div class="tt-section"><div class="tt-label">Зависит от</div>${depHTML}</div>
         ${descHTML}
     `;
