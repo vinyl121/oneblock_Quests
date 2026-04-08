@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CubixWorld — Просмотр квестов</title>
+<style>
+    :root {
+        --bg: #14161c;
+        --bg2: #1c1f28;
+        --bg3: #262a36;
+        --border: #353a48;
+        --text: #e4e6eb;
+        --muted: #8a8f9c;
+        --accent: #8b5cf6;
+        --accent2: #a78bfa;
+        --gold: #fbbf24;
+        --green: #34d399;
+        --red: #f87171;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0; padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 14px;
+    }
+    header {
+        position: sticky; top: 0; z-index: 10;
+        background: linear-gradient(180deg, #1c1f28 0%, #161920 100%);
+        border-bottom: 1px solid var(--border);
+        padding: 14px 22px;
+        display: flex; align-items: center; gap: 18px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    header h1 {
+        margin: 0; font-size: 18px; font-weight: 600;
+        background: linear-gradient(90deg, var(--accent2), #ec4899);
+        -webkit-background-clip: text; background-clip: text;
+        color: transparent;
+        white-space: nowrap;
+    }
+    #search {
+        flex: 1; max-width: 520px;
+        background: var(--bg3); border: 1px solid var(--border);
+        color: var(--text);
+        padding: 10px 14px; border-radius: 8px;
+        font-size: 14px; outline: none;
+        transition: border-color .15s;
+    }
+    #search:focus { border-color: var(--accent); }
+    #stats { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+    main { padding: 20px 22px 60px; }
+    #loading, #error {
+        text-align: center; padding: 60px 20px; color: var(--muted);
+    }
+    #error { color: var(--red); }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 10px;
+    }
+    .quest {
+        position: relative;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        display: flex; align-items: center; gap: 10px;
+        cursor: default;
+        transition: background .12s, border-color .12s, transform .12s;
+    }
+    .quest:hover {
+        background: var(--bg3);
+        border-color: var(--accent);
+    }
+    .quest .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent2); flex-shrink: 0;
+    }
+    .quest.main .dot { background: var(--gold); }
+    .quest .name {
+        flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-size: 13.5px;
+    }
+    .quest .id {
+        color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
+    }
+
+    /* Tooltip */
+    #tooltip {
+        position: fixed; z-index: 1000;
+        max-width: 420px;
+        background: #0f1116;
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        padding: 12px 14px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity .1s;
+        font-size: 13px;
+        line-height: 1.45;
+    }
+    #tooltip.visible { opacity: 1; }
+    #tooltip .tt-name {
+        font-weight: 600; font-size: 14.5px;
+        color: var(--accent2);
+        margin-bottom: 6px;
+        word-wrap: break-word;
+    }
+    #tooltip .tt-id { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+    #tooltip .tt-section {
+        margin-top: 8px; padding-top: 8px;
+        border-top: 1px dashed var(--border);
+    }
+    #tooltip .tt-label {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+        color: var(--muted); margin-bottom: 4px;
+    }
+    #tooltip .tt-desc {
+        color: #c9ccd4; white-space: pre-wrap; word-wrap: break-word;
+        max-height: 140px; overflow: hidden;
+        -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent);
+                mask-image: linear-gradient(180deg, #000 70%, transparent);
+    }
+    #tooltip ul { margin: 2px 0; padding-left: 18px; }
+    #tooltip li { margin: 1px 0; }
+    #tooltip .task { color: var(--green); }
+    #tooltip .reward { color: var(--gold); }
+    #tooltip .dep { color: #93c5fd; }
+    #tooltip .none { color: var(--muted); font-style: italic; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: #404555; }
+
+    footer {
+        text-align: center; color: var(--muted); font-size: 12px;
+        padding: 20px; border-top: 1px solid var(--border); margin-top: 40px;
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>CubixWorld Quests</h1>
+    <input id="search" type="text" placeholder="Поиск квеста по названию..." autocomplete="off">
+    <div id="stats">Загрузка...</div>
+</header>
+
+<main>
+    <div id="loading">Загрузка базы квестов...</div>
+    <div id="error" style="display:none;"></div>
+    <div id="grid" class="grid"></div>
+</main>
+
+<div id="tooltip"></div>
+
+<footer>Режим просмотра — редактирование недоступно</footer>
+
+<script>
+// ---------- Helpers ----------
+const stripColor = s => (s || '').replace(/§./g, '');
+const escapeHtml = s => String(s || '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function iterBQ(obj, cb) {
+    if (!obj) return;
+    Object.keys(obj).forEach(k => {
+        if (k.endsWith(':10') || /^\d+:10$/.test(k)) cb(obj[k], k);
+    });
+}
+function getBQ(obj, name) {
+    if (!obj) return undefined;
+    for (const k of Object.keys(obj)) {
+        if (k.split(':')[0] === name) return obj[k];
+    }
+    return undefined;
+}
+function shortId(id) {
+    if (!id) return '?';
+    // minecraft:stone -> stone ; mod:item.foo -> foo
+    const parts = String(id).split(':');
+    let tail = parts[parts.length - 1];
+    tail = tail.replace(/^item\./, '').replace(/^tile\./, '');
+    return tail;
+}
+
+// ---------- Task descriptions ----------
+function describeTask(task) {
+    const type = task['taskID:8'] || '';
+    const label = type.replace('bq_standard:', '');
+    switch (type) {
+        case 'bq_standard:checkbox':
+            return 'Отметить выполнение';
+        case 'bq_standard:retrieval':
+        case 'bq_standard:crafting': {
+            const action = type.endsWith('crafting') ? 'Скрафтить' : 'Получить';
+            const items = [];
+            iterBQ(task['requiredItems:9'], it => {
+                const id = getBQ(it, 'id');
+                const count = getBQ(it, 'Count') || 1;
+                items.push(`${shortId(id)} ×${count}`);
+            });
+            return items.length ? `${action}: ${items.join(', ')}` : action;
+        }
+        case 'bq_standard:block_break': {
+            const blocks = [];
+            iterBQ(task['blocks:9'], b => {
+                const id = getBQ(b, 'id') || b['id:8'];
+                const n = b['n:3'] || b['amount:3'] || 1;
+                blocks.push(`${shortId(id)} ×${n}`);
+            });
+            return blocks.length ? `Сломать: ${blocks.join(', ')}` : 'Сломать блоки';
+        }
+        case 'bq_standard:hunt': {
+            const target = task['target:8'] || '?';
+            const n = task['amount:3'] || 1;
+            return `Убить ${shortId(target)} ×${n}`;
+        }
+        case 'bq_standard:xp': {
+            const n = task['amount:3'] || 0;
+            const lvl = task['isLevels:1'];
+            return `Получить ${n} ${lvl ? 'уровней' : 'опыта'}`;
+        }
+        case 'bq_standard:location': {
+            const name = task['name:8'] || 'локация';
+            return `Посетить: ${name}`;
+        }
+        case 'bq_standard:fluid': {
+            const fluids = [];
+            iterBQ(task['requiredFluids:9'], f => {
+                fluids.push(`${shortId(f['FluidName:8'])} ${f['Amount:3']||0}mB`);
+            });
+            return fluids.length ? `Жидкость: ${fluids.join(', ')}` : 'Собрать жидкость';
+        }
+        default:
+            return label;
+    }
+}
+
+// ---------- Reward descriptions ----------
+function describeReward(rew) {
+    const type = rew['rewardID:8'] || '';
+    switch (type) {
+        case 'bq_standard:xp': {
+            const n = rew['amount:3'] || 0;
+            const lvl = rew['isLevels:1'];
+            return `${n} ${lvl ? 'ур. опыта' : 'очков опыта'}`;
+        }
+        case 'bq_standard:item':
+        case 'bq_standard:choice': {
+            const items = [];
+            iterBQ(rew['rewards:9'], it => {
+                const id = getBQ(it, 'id');
+                const count = getBQ(it, 'Count') || 1;
+                items.push(`${shortId(id)} ×${count}`);
+            });
+            const prefix = type.endsWith('choice') ? 'На выбор' : 'Предметы';
+            return items.length ? `${prefix}: ${items.join(', ')}` : prefix;
+        }
+        case 'bq_standard:command': {
+            const cmd = rew['command:8'] || '';
+            return `Команда: ${cmd.slice(0, 60)}`;
+        }
+        default:
+            return type.replace('bq_standard:', '') || 'Награда';
+    }
+}
+
+// ---------- State ----------
+let quests = [];       // [{id, name, clean, desc, isMain, tasks[], rewards[], deps[]}]
+let questMap = {};     // id -> quest entry
+
+async function load() {
+    const stats = document.getElementById('stats');
+    const loading = document.getElementById('loading');
+    const errEl = document.getElementById('error');
+    try {
+        const res = await fetch('QuestDatabase.json', { cache: 'no-cache' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const db = data['questDatabase:9'];
+        if (!db) throw new Error('Не найден questDatabase:9');
+
+        Object.values(db).forEach(q => {
+            const id = q['questID:3'];
+            const props = q['properties:10']?.['betterquesting:10'] || {};
+            const name = props['name:8'] || 'Quest';
+            const clean = stripColor(name);
+            const desc = stripColor(props['desc:8'] || '');
+            const isMain = !!props['isMain:1'];
+
+            const tasks = [];
+            iterBQ(q['tasks:9'], t => tasks.push(describeTask(t)));
+
+            const rewards = [];
+            iterBQ(q['rewards:9'], r => rewards.push(describeReward(r)));
+
+            const deps = (q['preRequisites:11'] || []).slice();
+
+            const entry = { id, name, clean, desc, isMain, tasks, rewards, deps };
+            quests.push(entry);
+            questMap[id] = entry;
+        });
+
+        // Resolve dep names
+        quests.forEach(q => {
+            q.depNames = q.deps.map(id => {
+                const dq = questMap[id];
+                return dq ? dq.clean : `ID ${id}`;
+            });
+        });
+
+        quests.sort((a, b) => a.clean.localeCompare(b.clean, 'ru'));
+
+        loading.style.display = 'none';
+        stats.textContent = `${quests.length} квестов`;
+        render(quests);
+    } catch (e) {
+        loading.style.display = 'none';
+        errEl.style.display = 'block';
+        errEl.textContent = 'Ошибка загрузки QuestDatabase.json: ' + e.message;
+        stats.textContent = '';
+    }
+}
+
+// ---------- Render ----------
+const grid = document.getElementById('grid');
+function render(list) {
+    grid.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    list.forEach(q => {
+        const el = document.createElement('div');
+        el.className = 'quest' + (q.isMain ? ' main' : '');
+        el.dataset.id = q.id;
+        el.innerHTML = `
+            <div class="dot"></div>
+            <div class="name">${escapeHtml(q.clean)}</div>
+            <div class="id">#${q.id}</div>
+        `;
+        frag.appendChild(el);
+    });
+    grid.appendChild(frag);
+}
+
+// ---------- Search ----------
+const search = document.getElementById('search');
+search.addEventListener('input', () => {
+    const term = search.value.trim().toLowerCase();
+    if (!term) {
+        render(quests);
+        document.getElementById('stats').textContent = `${quests.length} квестов`;
+        return;
+    }
+    const filtered = quests.filter(q => q.clean.toLowerCase().includes(term));
+    render(filtered);
+    document.getElementById('stats').textContent = `${filtered.length} из ${quests.length}`;
+});
+
+// ---------- Tooltip ----------
+const tooltip = document.getElementById('tooltip');
+
+function buildTooltip(q) {
+    const taskHTML = q.tasks.length
+        ? `<ul>${q.tasks.map(t => `<li class="task">${escapeHtml(t)}</li>`).join('')}</ul>`
+        : `<div class="none">нет</div>`;
+
+    const rewardHTML = q.rewards.length
+        ? `<ul>${q.rewards.map(r => `<li class="reward">${escapeHtml(r)}</li>`).join('')}</ul>`
+        : `<div class="none">нет</div>`;
+
+    const depHTML = q.depNames.length
+        ? `<ul>${q.depNames.map(d => `<li class="dep">${escapeHtml(d)}</li>`).join('')}</ul>`
+        : `<div class="none">нет</div>`;
+
+    const descHTML = q.desc
+        ? `<div class="tt-section"><div class="tt-label">Описание</div><div class="tt-desc">${escapeHtml(q.desc)}</div></div>`
+        : '';
+
+    return `
+        <div class="tt-name">${escapeHtml(q.clean)}</div>
+        <div class="tt-id">ID: ${q.id}${q.isMain ? ' · главный' : ''}</div>
+        <div class="tt-section"><div class="tt-label">Задача</div>${taskHTML}</div>
+        <div class="tt-section"><div class="tt-label">Награда</div>${rewardHTML}</div>
+        <div class="tt-section"><div class="tt-label">Зависит от</div>${depHTML}</div>
+        ${descHTML}
+    `;
+}
+
+grid.addEventListener('mouseover', e => {
+    const el = e.target.closest('.quest');
+    if (!el) return;
+    const q = questMap[+el.dataset.id];
+    if (!q) return;
+    tooltip.innerHTML = buildTooltip(q);
+    tooltip.classList.add('visible');
+    positionTooltip(e);
+});
+grid.addEventListener('mousemove', e => {
+    if (tooltip.classList.contains('visible')) positionTooltip(e);
+});
+grid.addEventListener('mouseout', e => {
+    if (!e.relatedTarget || !e.relatedTarget.closest('.quest')) {
+        tooltip.classList.remove('visible');
+    }
+});
+
+function positionTooltip(e) {
+    const pad = 16;
+    const r = tooltip.getBoundingClientRect();
+    let x = e.clientX + pad;
+    let y = e.clientY + pad;
+    if (x + r.width > window.innerWidth - 10) x = e.clientX - r.width - pad;
+    if (y + r.height > window.innerHeight - 10) y = e.clientY - r.height - pad;
+    if (x < 10) x = 10;
+    if (y < 10) y = 10;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+}
+
+load();
+</script>
+</body>
+</html>
