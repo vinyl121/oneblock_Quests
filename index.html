@@ -83,10 +83,49 @@
     }
     #error { color: var(--red); }
 
+    .line-section {
+        margin-bottom: 18px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.015);
+        overflow: hidden;
+    }
+    .line-section[open] {
+        background: rgba(139, 92, 246, 0.03);
+    }
+    .line-section summary {
+        cursor: pointer;
+        padding: 12px 18px;
+        display: flex; align-items: center; gap: 10px;
+        font-size: 15px; font-weight: 600;
+        color: #fcd34d;
+        list-style: none;
+        user-select: none;
+        transition: background .12s;
+    }
+    .line-section summary::-webkit-details-marker { display: none; }
+    .line-section summary:hover { background: rgba(255,255,255,0.03); }
+    .line-section summary::before {
+        content: '▸';
+        display: inline-block;
+        color: var(--muted);
+        font-size: 12px;
+        transition: transform .15s;
+    }
+    .line-section[open] summary::before { transform: rotate(90deg); }
+    .line-section .line-count {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+        background: rgba(255,255,255,0.04);
+        padding: 2px 8px; border-radius: 10px;
+    }
     .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: 10px;
+        padding: 4px 14px 16px;
     }
     .quest {
         position: relative;
@@ -200,7 +239,7 @@
 <main>
     <div id="loading">Загрузка базы квестов...</div>
     <div id="error" style="display:none;"></div>
-    <div id="grid" class="grid"></div>
+    <div id="container"></div>
 </main>
 
 <div id="tooltip"></div>
@@ -374,7 +413,7 @@ async function load(src) {
     const search = document.getElementById('search');
 
     errEl.style.display = 'none';
-    grid.innerHTML = '';
+    container.innerHTML = '';
 
     // Use cache if available
     if (datasets[src]) {
@@ -413,29 +452,64 @@ async function load(src) {
 function applySearch() {
     const term = document.getElementById('search').value.trim().toLowerCase();
     const list = term ? quests.filter(q => q.clean.toLowerCase().includes(term)) : quests;
-    render(list);
+    // Expand sections automatically when searching
+    render(list, !!term);
     document.getElementById('stats').textContent = term
         ? `${list.length} из ${quests.length}`
         : `${quests.length} квестов`;
 }
 
 // ---------- Render ----------
-const grid = document.getElementById('grid');
-function render(list) {
-    grid.innerHTML = '';
-    const frag = document.createDocumentFragment();
+const container = document.getElementById('container');
+const NO_LINE = 'Без ветки';
+
+function questCardHTML(q) {
+    return `<div class="quest${q.isMain ? ' main' : ''}" data-id="${q.id}">
+        <div class="dot"></div>
+        <div class="name">${escapeHtml(q.clean)}</div>
+        <div class="id">#${q.id}</div>
+    </div>`;
+}
+
+function render(list, expandAll) {
+    container.innerHTML = '';
+
+    // Group by line. Quests that belong to multiple lines appear in each.
+    const groups = new Map(); // lineName -> [quests]
     list.forEach(q => {
-        const el = document.createElement('div');
-        el.className = 'quest' + (q.isMain ? ' main' : '');
-        el.dataset.id = q.id;
-        el.innerHTML = `
-            <div class="dot"></div>
-            <div class="name">${escapeHtml(q.clean)}</div>
-            <div class="id">#${q.id}</div>
-        `;
-        frag.appendChild(el);
+        const lines = q.lines.length ? q.lines : [NO_LINE];
+        lines.forEach(ln => {
+            if (!groups.has(ln)) groups.set(ln, []);
+            groups.get(ln).push(q);
+        });
     });
-    grid.appendChild(frag);
+
+    // Sort groups alphabetically, "Без ветки" last
+    const sortedKeys = [...groups.keys()].sort((a, b) => {
+        if (a === NO_LINE) return 1;
+        if (b === NO_LINE) return -1;
+        return a.localeCompare(b, 'ru');
+    });
+
+    const frag = document.createDocumentFragment();
+    sortedKeys.forEach(lineName => {
+        const items = groups.get(lineName);
+        const details = document.createElement('details');
+        details.className = 'line-section';
+        if (expandAll) details.open = true;
+
+        const summary = document.createElement('summary');
+        summary.innerHTML = `<span>${escapeHtml(lineName)}</span><span class="line-count">${items.length}</span>`;
+        details.appendChild(summary);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid';
+        grid.innerHTML = items.map(questCardHTML).join('');
+        details.appendChild(grid);
+
+        frag.appendChild(details);
+    });
+    container.appendChild(frag);
 }
 
 // ---------- Search ----------
@@ -481,7 +555,7 @@ function buildTooltip(q) {
     `;
 }
 
-grid.addEventListener('mouseover', e => {
+container.addEventListener('mouseover', e => {
     const el = e.target.closest('.quest');
     if (!el) return;
     const q = questMap[+el.dataset.id];
@@ -490,10 +564,10 @@ grid.addEventListener('mouseover', e => {
     tooltip.classList.add('visible');
     positionTooltip(e);
 });
-grid.addEventListener('mousemove', e => {
+container.addEventListener('mousemove', e => {
     if (tooltip.classList.contains('visible')) positionTooltip(e);
 });
-grid.addEventListener('mouseout', e => {
+container.addEventListener('mouseout', e => {
     if (!e.relatedTarget || !e.relatedTarget.closest('.quest')) {
         tooltip.classList.remove('visible');
     }
