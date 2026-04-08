@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CubixWorld — Просмотр квестов</title>
+<title>CubixWorld Oneblock Quests</title>
 <style>
     :root {
         --bg: #14161c;
@@ -51,6 +51,31 @@
     }
     #search:focus { border-color: var(--accent); }
     #stats { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+    .tabs {
+        display: flex; gap: 6px;
+        padding: 0 22px;
+        background: #161920;
+        border-bottom: 1px solid var(--border);
+        position: sticky; top: 62px; z-index: 9;
+    }
+    .tab {
+        padding: 12px 20px;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: color .15s, border-color .15s;
+        font-family: inherit;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+        color: var(--accent2);
+        border-bottom-color: var(--accent);
+    }
 
     main { padding: 20px 22px 60px; }
     #loading, #error {
@@ -162,10 +187,15 @@
 <body>
 
 <header>
-    <h1>CubixWorld Quests</h1>
+    <h1>CubixWorld Oneblock Quests</h1>
     <input id="search" type="text" placeholder="Поиск квеста по названию..." autocomplete="off">
     <div id="stats">Загрузка...</div>
 </header>
+
+<nav class="tabs">
+    <button class="tab active" data-src="QuestDatabase_Realm.json">Realm</button>
+    <button class="tab" data-src="QuestDatabase_Mobile.json">Mobile</button>
+</nav>
 
 <main>
     <div id="loading">Загрузка базы квестов...</div>
@@ -288,70 +318,105 @@ function describeReward(rew) {
 }
 
 // ---------- State ----------
-let quests = [];       // [{id, name, clean, desc, isMain, deps[], lines[]}]
-let questMap = {};     // id -> quest entry
-let questLineNames = {}; // questId -> [lineName, ...]
+let quests = [];       // active tab quests
+let questMap = {};     // active tab id -> quest
+const datasets = {};   // src -> { quests, questMap }
 
-async function load() {
+function parseDatabase(data) {
+    const db = data['questDatabase:9'];
+    if (!db) throw new Error('Не найден questDatabase:9');
+
+    const questLineNames = {}; // questId -> [lineName, ...]
+    const lines = data['questLines:9'] || {};
+    Object.values(lines).forEach(line => {
+        const lineName = stripColor(line['properties:10']?.['betterquesting:10']?.['name:8'] || 'Без названия');
+        iterBQ(line['quests:9'], entry => {
+            const qid = entry['id:3'];
+            if (qid == null) return;
+            if (!questLineNames[qid]) questLineNames[qid] = [];
+            if (!questLineNames[qid].includes(lineName)) questLineNames[qid].push(lineName);
+        });
+    });
+
+    const qArr = [];
+    const qMap = {};
+    Object.values(db).forEach(q => {
+        const id = q['questID:3'];
+        const props = q['properties:10']?.['betterquesting:10'] || {};
+        const name = props['name:8'] || 'Quest';
+        const clean = stripColor(name);
+        const desc = stripColor(props['desc:8'] || '');
+        const isMain = !!props['isMain:1'];
+        const deps = (q['preRequisites:11'] || []).slice();
+        const lineList = questLineNames[id] || [];
+        const entry = { id, name, clean, desc, isMain, deps, lines: lineList };
+        qArr.push(entry);
+        qMap[id] = entry;
+    });
+
+    qArr.forEach(q => {
+        q.depInfo = q.deps.map(id => {
+            const dq = qMap[id];
+            const nm = dq ? dq.clean : `ID ${id}`;
+            const ln = (questLineNames[id] && questLineNames[id].length) ? questLineNames[id].join(', ') : null;
+            return { name: nm, line: ln };
+        });
+    });
+
+    qArr.sort((a, b) => a.clean.localeCompare(b.clean, 'ru'));
+    return { quests: qArr, questMap: qMap };
+}
+
+async function load(src) {
     const stats = document.getElementById('stats');
     const loading = document.getElementById('loading');
     const errEl = document.getElementById('error');
+    const search = document.getElementById('search');
+
+    errEl.style.display = 'none';
+    grid.innerHTML = '';
+
+    // Use cache if available
+    if (datasets[src]) {
+        quests = datasets[src].quests;
+        questMap = datasets[src].questMap;
+        loading.style.display = 'none';
+        applySearch();
+        return;
+    }
+
+    loading.style.display = 'block';
+    loading.textContent = `Загрузка ${src}...`;
+    stats.textContent = 'Загрузка...';
+
     try {
-        const res = await fetch('QuestDatabase.json', { cache: 'no-cache' });
+        const res = await fetch(src, { cache: 'no-cache' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        const db = data['questDatabase:9'];
-        if (!db) throw new Error('Не найден questDatabase:9');
-
-        // Build questLines map: questId -> [lineName, ...]
-        const lines = data['questLines:9'] || {};
-        Object.values(lines).forEach(line => {
-            const lineName = stripColor(line['properties:10']?.['betterquesting:10']?.['name:8'] || 'Без названия');
-            iterBQ(line['quests:9'], entry => {
-                const qid = entry['id:3'];
-                if (qid == null) return;
-                if (!questLineNames[qid]) questLineNames[qid] = [];
-                if (!questLineNames[qid].includes(lineName)) questLineNames[qid].push(lineName);
-            });
-        });
-
-        Object.values(db).forEach(q => {
-            const id = q['questID:3'];
-            const props = q['properties:10']?.['betterquesting:10'] || {};
-            const name = props['name:8'] || 'Quest';
-            const clean = stripColor(name);
-            const desc = stripColor(props['desc:8'] || '');
-            const isMain = !!props['isMain:1'];
-
-            const deps = (q['preRequisites:11'] || []).slice();
-            const lineList = questLineNames[id] || [];
-
-            const entry = { id, name, clean, desc, isMain, deps, lines: lineList };
-            quests.push(entry);
-            questMap[id] = entry;
-        });
-
-        // Resolve dep names with their lines
-        quests.forEach(q => {
-            q.depInfo = q.deps.map(id => {
-                const dq = questMap[id];
-                const nm = dq ? dq.clean : `ID ${id}`;
-                const ln = (questLineNames[id] && questLineNames[id].length) ? questLineNames[id].join(', ') : null;
-                return { name: nm, line: ln };
-            });
-        });
-
-        quests.sort((a, b) => a.clean.localeCompare(b.clean, 'ru'));
+        const parsed = parseDatabase(data);
+        datasets[src] = parsed;
+        quests = parsed.quests;
+        questMap = parsed.questMap;
 
         loading.style.display = 'none';
-        stats.textContent = `${quests.length} квестов`;
-        render(quests);
+        applySearch();
     } catch (e) {
         loading.style.display = 'none';
         errEl.style.display = 'block';
-        errEl.textContent = 'Ошибка загрузки QuestDatabase.json: ' + e.message;
+        errEl.textContent = `Ошибка загрузки ${src}: ${e.message}`;
         stats.textContent = '';
+        quests = [];
+        questMap = {};
     }
+}
+
+function applySearch() {
+    const term = document.getElementById('search').value.trim().toLowerCase();
+    const list = term ? quests.filter(q => q.clean.toLowerCase().includes(term)) : quests;
+    render(list);
+    document.getElementById('stats').textContent = term
+        ? `${list.length} из ${quests.length}`
+        : `${quests.length} квестов`;
 }
 
 // ---------- Render ----------
@@ -374,17 +439,18 @@ function render(list) {
 }
 
 // ---------- Search ----------
-const search = document.getElementById('search');
-search.addEventListener('input', () => {
-    const term = search.value.trim().toLowerCase();
-    if (!term) {
-        render(quests);
-        document.getElementById('stats').textContent = `${quests.length} квестов`;
-        return;
-    }
-    const filtered = quests.filter(q => q.clean.toLowerCase().includes(term));
-    render(filtered);
-    document.getElementById('stats').textContent = `${filtered.length} из ${quests.length}`;
+document.getElementById('search').addEventListener('input', applySearch);
+
+// ---------- Tabs ----------
+let currentSrc = 'QuestDatabase_Realm.json';
+document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (btn.classList.contains('active')) return;
+        document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSrc = btn.dataset.src;
+        load(currentSrc);
+    });
 });
 
 // ---------- Tooltip ----------
@@ -446,7 +512,7 @@ function positionTooltip(e) {
     tooltip.style.top = y + 'px';
 }
 
-load();
+load(currentSrc);
 </script>
 </body>
 </html>
