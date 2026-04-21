@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CubixWorld Oneblock Quests</title>
+<style>
+    :root {
+        --bg: #14161c;
+        --bg2: #1c1f28;
+        --bg3: #262a36;
+        --border: #353a48;
+        --text: #e4e6eb;
+        --muted: #8a8f9c;
+        --accent: #8b5cf6;
+        --accent2: #a78bfa;
+        --gold: #fbbf24;
+        --green: #34d399;
+        --red: #f87171;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0; padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 14px;
+    }
+    header {
+        position: sticky; top: 0; z-index: 10;
+        background: linear-gradient(180deg, #1c1f28 0%, #161920 100%);
+        border-bottom: 1px solid var(--border);
+        padding: 14px 22px;
+        display: flex; align-items: center; gap: 18px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    header h1 {
+        margin: 0; font-size: 18px; font-weight: 600;
+        background: linear-gradient(90deg, var(--accent2), #ec4899);
+        -webkit-background-clip: text; background-clip: text;
+        color: transparent;
+        white-space: nowrap;
+    }
+    #search {
+        flex: 1; max-width: 520px;
+        background: var(--bg3); border: 1px solid var(--border);
+        color: var(--text);
+        padding: 10px 14px; border-radius: 8px;
+        font-size: 14px; outline: none;
+        transition: border-color .15s;
+    }
+    #search:focus { border-color: var(--accent); }
+    #stats { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+    .tabs {
+        display: flex; gap: 6px;
+        padding: 0 22px;
+        background: #161920;
+        border-bottom: 1px solid var(--border);
+        position: sticky; top: 62px; z-index: 9;
+    }
+    .tab {
+        padding: 12px 20px;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: color .15s, border-color .15s;
+        font-family: inherit;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+        color: var(--accent2);
+        border-bottom-color: var(--accent);
+    }
+
+    main { padding: 20px 22px 60px; }
+    #loading, #error {
+        text-align: center; padding: 60px 20px; color: var(--muted);
+    }
+    #error { color: var(--red); }
+
+    .line-divider {
+        display: flex; align-items: center; gap: 14px;
+        margin: 26px 2px 12px;
+        color: var(--muted);
+        font-size: 13px; font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        user-select: none;
+    }
+    .line-divider::before,
+    .line-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+    }
+    .line-divider .line-count {
+        color: #6b7280;
+        font-size: 11px;
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+    }
+    .line-divider:first-child { margin-top: 4px; }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 10px;
+    }
+    .quest {
+        position: relative;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        display: flex; align-items: center; gap: 10px;
+        cursor: default;
+        transition: background .12s, border-color .12s, transform .12s;
+    }
+    .quest:hover {
+        background: var(--bg3);
+        border-color: var(--accent);
+    }
+    .quest .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent2); flex-shrink: 0;
+    }
+    .quest.main .dot { background: var(--gold); }
+    .quest .name {
+        flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-size: 13.5px;
+    }
+    .quest .id {
+        color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
+    }
+
+    /* Tooltip */
+    #tooltip {
+        position: fixed; z-index: 1000;
+        max-width: 420px;
+        background: #0f1116;
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        padding: 12px 14px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity .1s;
+        font-size: 13px;
+        line-height: 1.45;
+    }
+    #tooltip.visible { opacity: 1; }
+    #tooltip .tt-name {
+        font-weight: 600; font-size: 14.5px;
+        color: var(--accent2);
+        margin-bottom: 6px;
+        word-wrap: break-word;
+    }
+    #tooltip .tt-id { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+    #tooltip .tt-section {
+        margin-top: 8px; padding-top: 8px;
+        border-top: 1px dashed var(--border);
+    }
+    #tooltip .tt-label {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+        color: var(--muted); margin-bottom: 4px;
+    }
+    #tooltip .tt-desc {
+        color: #c9ccd4; white-space: pre-wrap; word-wrap: break-word;
+        max-height: 320px; overflow-y: auto;
+        padding-right: 4px;
+        font-size: 12.5px; line-height: 1.55;
+    }
+    #tooltip { max-width: 480px; }
+    #tooltip .tt-desc::-webkit-scrollbar { width: 6px; }
+    #tooltip .tt-desc::-webkit-scrollbar-thumb { background: #3a3f50; border-radius: 3px; }
+    #tooltip ul { margin: 2px 0; padding-left: 18px; }
+    #tooltip li { margin: 1px 0; }
+    #tooltip .task { color: var(--green); }
+    #tooltip .reward { color: var(--gold); }
+    #tooltip .dep { color: #93c5fd; }
+    #tooltip .dep-line {
+        color: var(--muted); font-size: 11px; font-style: italic;
+    }
+    #tooltip .tt-line {
+        color: #fcd34d;
+        background: rgba(251, 191, 36, 0.08);
+        padding: 4px 8px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+    #tooltip .none { color: var(--muted); font-style: italic; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: #404555; }
+
+    footer {
+        text-align: center; color: var(--muted); font-size: 12px;
+        padding: 20px; border-top: 1px solid var(--border); margin-top: 40px;
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>CubixWorld Oneblock Quests</h1>
+    <input id="search" type="text" placeholder="Поиск квеста по названию..." autocomplete="off">
+    <div id="stats">Загрузка...</div>
+</header>
+
+<nav class="tabs">
+    <button class="tab active" data-src="realm.bin">Realm</button>
+    <button class="tab" data-src="mobile.bin">Mobile</button>
+</nav>
+
+<main>
+    <div id="loading">Загрузка базы квестов...</div>
+    <div id="error" style="display:none;"></div>
+    <div id="container"></div>
+</main>
+
+<div id="tooltip"></div>
+
+<footer>Режим просмотра — редактирование недоступно</footer>
+
+<script>
+// ---------- Helpers ----------
+const stripColor = s => (s || '').replace(/§./g, '');
+const escapeHtml = s => String(s || '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function iterBQ(obj, cb) {
+    if (!obj) return;
+    Object.keys(obj).forEach(k => {
+        if (k.endsWith(':10') || /^\d+:10$/.test(k)) cb(obj[k], k);
+    });
+}
+function getBQ(obj, name) {
+    if (!obj) return undefined;
+    for (const k of Object.keys(obj)) {
+        if (k.split(':')[0] === name) return obj[k];
+    }
+    return undefined;
+}
+function shortId(id) {
+    if (!id) return '?';
+    // minecraft:stone -> stone ; mod:item.foo -> foo
+    const parts = String(id).split(':');
+    let tail = parts[parts.length - 1];
+    tail = tail.replace(/^item\./, '').replace(/^tile\./, '');
+    return tail;
+}
+
+// ---------- Task descriptions ----------
+function describeTask(task) {
+    const type = task['taskID:8'] || '';
+    const label = type.replace('bq_standard:', '');
+    switch (type) {
+        case 'bq_standard:checkbox':
+            return 'Отметить выполнение';
+        case 'bq_standard:retrieval':
+        case 'bq_standard:crafting': {
+            const action = type.endsWith('crafting') ? 'Скрафтить' : 'Получить';
+            const items = [];
+            iterBQ(task['requiredItems:9'], it => {
+                const id = getBQ(it, 'id');
+                const count = getBQ(it, 'Count') || 1;
+                items.push(`${shortId(id)} ×${count}`);
+            });
+            return items.length ? `${action}: ${items.join(', ')}` : action;
+        }
+        case 'bq_standard:block_break': {
+            const blocks = [];
+            iterBQ(task['blocks:9'], b => {
+                const id = getBQ(b, 'id') || b['id:8'];
+                const n = b['n:3'] || b['amount:3'] || 1;
+                blocks.push(`${shortId(id)} ×${n}`);
+            });
+            return blocks.length ? `Сломать: ${blocks.join(', ')}` : 'Сломать блоки';
+        }
+        case 'bq_standard:hunt': {
+            const target = task['target:8'] || '?';
+            const n = task['amount:3'] || 1;
+            return `Убить ${shortId(target)} ×${n}`;
+        }
+        case 'bq_standard:xp': {
+            const n = task['amount:3'] || 0;
+            const lvl = task['isLevels:1'];
+            return `Получить ${n} ${lvl ? 'уровней' : 'опыта'}`;
+        }
+        case 'bq_standard:location': {
+            const name = task['name:8'] || 'локация';
+            return `Посетить: ${name}`;
+        }
+        case 'bq_standard:fluid': {
+            const fluids = [];
+            iterBQ(task['requiredFluids:9'], f => {
+                fluids.push(`${shortId(f['FluidName:8'])} ${f['Amount:3']||0}mB`);
+            });
+            return fluids.length ? `Жидкость: ${fluids.join(', ')}` : 'Собрать жидкость';
+        }
+        default:
+            return label;
+    }
+}
+
+// ---------- Reward descriptions ----------
+function describeReward(rew) {
+    const type = rew['rewardID:8'] || '';
+    switch (type) {
+        case 'bq_standard:xp': {
+            const n = rew['amount:3'] || 0;
+            const lvl = rew['isLevels:1'];
+            return `${n} ${lvl ? 'ур. опыта' : 'очков опыта'}`;
+        }
+        case 'bq_standard:item':
+        case 'bq_standard:choice': {
+            const items = [];
+            iterBQ(rew['rewards:9'], it => {
+                const id = getBQ(it, 'id');
+                const count = getBQ(it, 'Count') || 1;
+                items.push(`${shortId(id)} ×${count}`);
+            });
+            const prefix = type.endsWith('choice') ? 'На выбор' : 'Предметы';
+            return items.length ? `${prefix}: ${items.join(', ')}` : prefix;
+        }
+        case 'bq_standard:command': {
+            const cmd = rew['command:8'] || '';
+            return `Команда: ${cmd.slice(0, 60)}`;
+        }
+        default:
+            return type.replace('bq_standard:', '') || 'Награда';
+    }
+}
+
+// ---------- Payload decoder ----------
+const _q1=['7f','2a','a1','c3','83','de','4b','56'];
+const _q2=['d9','1f','6c','08','20','bb','ef','74'];
+const _q3=['5a','49','e3','ad','8c','61','1f','b2'];
+const _q4=['04','7e','b2','98','c5','d0','3a','9c'];
+const _q5=[0x4e,0x17,0x9b,0x2c,0xa3,0x58,0xd6,0xf1];
+
+async function _buildKey(usage) {
+    const hex = [..._q1,..._q2,..._q3,..._q4].join('');
+    const raw = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) raw[i] = parseInt(hex.substr(i*2,2),16) ^ _q5[i & 7];
+    return crypto.subtle.importKey('raw', raw, {name:'AES-GCM'}, false, [usage]);
+}
+function _scr(bytes) {
+    const out = new Uint8Array(bytes.length);
+    const m = 0x5c;
+    for (let i = 0; i < bytes.length; i++) out[i] = bytes[i] ^ m ^ ((i * 17 + 91) & 0xff);
+    return out;
+}
+function _b64d(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+}
+
+async function decodePayload(raw) {
+    const scrambled = _b64d(raw.trim());
+    const combined = _scr(scrambled);
+    const iv = combined.slice(0, 12);
+    const ct = combined.slice(12);
+    const key = await _buildKey('decrypt');
+    const plain = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+    const dez = new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return JSON.parse(await new Response(dez).text());
+}
+
+// ---------- State ----------
+let quests = [];       // active tab quests
+let questMap = {};     // active tab id -> quest
+const datasets = {};   // src -> { quests, questMap }
+
+function parseDatabase(data) {
+    const db = data['questDatabase:9'];
+    if (!db) throw new Error('Не найден questDatabase:9');
+
+    const questLineNames = {}; // questId -> [lineName, ...]
+    const lines = data['questLines:9'] || {};
+    Object.values(lines).forEach(line => {
+        const lineName = stripColor(line['properties:10']?.['betterquesting:10']?.['name:8'] || 'Без названия');
+        iterBQ(line['quests:9'], entry => {
+            const qid = entry['id:3'];
+            if (qid == null) return;
+            if (!questLineNames[qid]) questLineNames[qid] = [];
+            if (!questLineNames[qid].includes(lineName)) questLineNames[qid].push(lineName);
+        });
+    });
+
+    const qArr = [];
+    const qMap = {};
+    Object.values(db).forEach(q => {
+        const id = q['questID:3'];
+        const props = q['properties:10']?.['betterquesting:10'] || {};
+        const name = props['name:8'] || 'Quest';
+        const clean = stripColor(name);
+        const desc = stripColor(props['desc:8'] || '');
+        const isMain = !!props['isMain:1'];
+        const deps = (q['preRequisites:11'] || []).slice();
+        const lineList = questLineNames[id] || [];
+        const entry = { id, name, clean, desc, isMain, deps, lines: lineList };
+        qArr.push(entry);
+        qMap[id] = entry;
+    });
+
+    qArr.forEach(q => {
+        q.depInfo = q.deps.map(id => {
+            const dq = qMap[id];
+            const nm = dq ? dq.clean : `ID ${id}`;
+            const ln = (questLineNames[id] && questLineNames[id].length) ? questLineNames[id].join(', ') : null;
+            return { name: nm, line: ln };
+        });
+    });
+
+    qArr.sort((a, b) => a.clean.localeCompare(b.clean, 'ru'));
+    return { quests: qArr, questMap: qMap };
+}
+
+async function load(src) {
+    const stats = document.getElementById('stats');
+    const loading = document.getElementById('loading');
+    const errEl = document.getElementById('error');
+    const search = document.getElementById('search');
+
+    errEl.style.display = 'none';
+    container.innerHTML = '';
+
+    // Use cache if available
+    if (datasets[src]) {
+        quests = datasets[src].quests;
+        questMap = datasets[src].questMap;
+        loading.style.display = 'none';
+        applySearch();
+        return;
+    }
+
+    loading.style.display = 'block';
+    loading.textContent = `Загрузка ${src}...`;
+    stats.textContent = 'Загрузка...';
+
+    try {
+        const res = await fetch(src, { cache: 'no-cache' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const raw = await res.text();
+        const data = await decodePayload(raw);
+        const parsed = parseDatabase(data);
+        datasets[src] = parsed;
+        quests = parsed.quests;
+        questMap = parsed.questMap;
+
+        loading.style.display = 'none';
+        applySearch();
+    } catch (e) {
+        loading.style.display = 'none';
+        errEl.style.display = 'block';
+        errEl.textContent = `Ошибка загрузки ${src}: ${e.message}`;
+        stats.textContent = '';
+        quests = [];
+        questMap = {};
+    }
+}
+
+function applySearch() {
+    const term = document.getElementById('search').value.trim().toLowerCase();
+    const list = term ? quests.filter(q => q.clean.toLowerCase().includes(term)) : quests;
+    render(list);
+    document.getElementById('stats').textContent = term
+        ? `${list.length} из ${quests.length}`
+        : `${quests.length} квестов`;
+}
+
+// ---------- Render ----------
+const container = document.getElementById('container');
+
+function questCardHTML(q) {
+    return `<div class="quest${q.isMain ? ' main' : ''}" data-id="${q.id}">
+        <div class="dot"></div>
+        <div class="name">${escapeHtml(q.clean)}</div>
+        <div class="id">#${q.id}</div>
+    </div>`;
+}
+
+function render(list) {
+    container.innerHTML = '';
+
+    // Group by line. Quests without a line are skipped entirely.
+    // Quests in multiple lines appear in each.
+    const groups = new Map();
+    list.forEach(q => {
+        if (!q.lines.length) return;
+        q.lines.forEach(ln => {
+            if (!groups.has(ln)) groups.set(ln, []);
+            groups.get(ln).push(q);
+        });
+    });
+
+    const sortedKeys = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'ru'));
+
+    let html = '';
+    sortedKeys.forEach(lineName => {
+        const items = groups.get(lineName);
+        html += `<div class="line-divider"><span>${escapeHtml(lineName)}</span><span class="line-count">${items.length}</span></div>`;
+        html += `<div class="grid">${items.map(questCardHTML).join('')}</div>`;
+    });
+    container.innerHTML = html;
+}
+
+// ---------- Search ----------
+document.getElementById('search').addEventListener('input', applySearch);
+
+// ---------- Tabs ----------
+let currentSrc = 'realm.bin';
+document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (btn.classList.contains('active')) return;
+        document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSrc = btn.dataset.src;
+        load(currentSrc);
+    });
+});
+
+// ---------- Tooltip ----------
+const tooltip = document.getElementById('tooltip');
+
+function buildTooltip(q) {
+    const lineHTML = q.lines.length
+        ? `<div class="tt-line">${q.lines.map(escapeHtml).join(' · ')}</div>`
+        : `<div class="none">—</div>`;
+
+    const depHTML = q.depInfo.length
+        ? `<ul>${q.depInfo.map(d => {
+            const lineLabel = d.line ? ` <span class="dep-line">[${escapeHtml(d.line)}]</span>` : '';
+            return `<li class="dep">${escapeHtml(d.name)}${lineLabel}</li>`;
+        }).join('')}</ul>`
+        : `<div class="none">нет</div>`;
+
+    const descHTML = q.desc
+        ? `<div class="tt-section"><div class="tt-label">Описание</div><div class="tt-desc">${escapeHtml(q.desc)}</div></div>`
+        : '';
+
+    return `
+        <div class="tt-name">${escapeHtml(q.clean)}</div>
+        <div class="tt-id">ID: ${q.id}${q.isMain ? ' · главный' : ''}</div>
+        <div class="tt-section"><div class="tt-label">Ветка</div>${lineHTML}</div>
+        <div class="tt-section"><div class="tt-label">Зависит от</div>${depHTML}</div>
+        ${descHTML}
+    `;
+}
+
+container.addEventListener('mouseover', e => {
+    const el = e.target.closest('.quest');
+    if (!el) return;
+    const q = questMap[+el.dataset.id];
+    if (!q) return;
+    tooltip.innerHTML = buildTooltip(q);
+    tooltip.classList.add('visible');
+    positionTooltip(e);
+});
+container.addEventListener('mousemove', e => {
+    if (tooltip.classList.contains('visible')) positionTooltip(e);
+});
+container.addEventListener('mouseout', e => {
+    if (!e.relatedTarget || !e.relatedTarget.closest('.quest')) {
+        tooltip.classList.remove('visible');
+    }
+});
+
+function positionTooltip(e) {
+    const pad = 16;
+    const r = tooltip.getBoundingClientRect();
+    let x = e.clientX + pad;
+    let y = e.clientY + pad;
+    if (x + r.width > window.innerWidth - 10) x = e.clientX - r.width - pad;
+    if (y + r.height > window.innerHeight - 10) y = e.clientY - r.height - pad;
+    if (x < 10) x = 10;
+    if (y < 10) y = 10;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+}
+
+load(currentSrc);
+</script>
+</body>
+</html>
